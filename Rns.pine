@@ -1,0 +1,70 @@
+//@version=5
+strategy("Enhanced Renko and SuperTrend Options Strategy", overlay=true)
+
+renkoBoxSize = input(1, title="Renko Box Size")
+atrLength = input(14, title="ATR Length")
+superTrendATR = input(10, title="SuperTrend ATR Length")
+superTrendMultiplier = input(3.0, title="SuperTrend Multiplier")
+lotSize = input(1, title="Lot Size")
+trailStopProfitStep = input(10, title="Profit Step for Trailing Stop (points)")
+trailStopLossStep = input(5, title="Stop-Loss Step (points)")
+takeProfitFactor = input(2.0, title="Take Profit Multiplier")
+profitIncreaseStep = input(10, title="Profit Increase Step for Trailing Stop Adjustment")
+profitDecreaseLimit = input(5, title="Strict Stop-Loss on Profit Decrease")
+startHour = input.int(9, "Start Trading Hour", minval=0, maxval=23)
+stopHour = input.int(15, "Stop Trading Hour", minval=0, maxval=23)
+maxTradesPerSession = input(3, title="Max Trades Per Session")
+
+isInSession = (hour >= startHour and hour < stopHour)
+
+atr = ta.atr(atrLength)
+volatilityFilter = atr > ta.sma(atr, atrLength)
+
+[superTrend, direction] = ta.supertrend(superTrendMultiplier, superTrendATR)
+
+renkoSource = request.security(syminfo.tickerid, "1", close)
+
+shortMA = ta.sma(close, 10)
+longMA = ta.sma(close, 50)
+isTrendingUp = shortMA > longMA
+isTrendingDown = shortMA < longMA
+
+buyCondition = (direction == 1) and (renkoSource > renkoSource[1]) and isTrendingUp
+sellCondition = (direction == -1) and (renkoSource < renkoSource[1]) and isTrendingDown
+
+var tradeCount = 0
+var float entryPrice = na
+var float currentTrailingStop = na
+
+if (buyCondition and isInSession and volatilityFilter and tradeCount < maxTradesPerSession)
+    strategy.entry("Buy Put 20 Theta", strategy.short, qty=lotSize)
+    strategy.entry("Sell Put 50 Theta", strategy.long, qty=lotSize)
+    entryPrice := close
+    tradeCount := tradeCount + 1
+
+if (sellCondition and isInSession and volatilityFilter and tradeCount < maxTradesPerSession)
+    strategy.entry("Buy Call 20 Theta", strategy.long, qty=lotSize)
+    strategy.entry("Sell Call 50 Theta", strategy.short, qty=lotSize)
+    entryPrice := close
+    tradeCount := tradeCount + 1
+
+if (strategy.opentrades > 0)
+    currentProfitPoints = strategy.position_size > 0 ? (close - entryPrice) : (entryPrice - close)
+
+    if (currentProfitPoints > profitIncreaseStep)
+        currentTrailingStop := close - trailStopLossStep
+
+    if (not na(currentTrailingStop))
+        strategy.exit("Trailing Stop - Options", from_entry="Buy Put 20 Theta", stop=currentTrailingStop)
+        strategy.exit("Trailing Stop - Options", from_entry="Buy Call 20 Theta", stop=currentTrailingStop)
+
+    if (currentProfitPoints < -profitDecreaseLimit)
+        strategy.close("Buy Put 20 Theta")
+        strategy.close("Buy Call 20 Theta")
+    
+    strategy.exit("Take Profit - Put", from_entry="Buy Put 20 Theta", limit=atr * takeProfitFactor)
+    strategy.exit("Take Profit - Call", from_entry="Buy Call 20 Theta", limit=atr * takeProfitFactor)
+
+plot(superTrend, color=(direction == 1 ? color.green : color.red), title="SuperTrend", linewidth=2)
+plot(shortMA, color=color.blue, title="Short-Term MA", linewidth=2)
+plot(longMA, color=color.orange, title="Long-Term MA", linewidth=2)
