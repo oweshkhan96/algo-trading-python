@@ -1,0 +1,41 @@
+//@version=5
+strategy("Iron Condor Strategy", overlay=true)
+
+buy_price_limit = input.float(10, title="Buy Price Limit")
+quantity = input.int(4, title="Quantity for Options")
+supertrend_atr = input.int(14, title="SuperTrend ATR Period")
+supertrend_multiplier = input.float(3.0, title="SuperTrend Multiplier")
+
+[supertrend, direction] = ta.supertrend(supertrend_multiplier, supertrend_atr)
+plot(supertrend, color=color.blue, title="SuperTrend")
+
+var float call_oi = na
+var float put_oi = na
+if na(call_oi) or na(put_oi)
+    call_oi := 1000
+    put_oi := 800
+
+long_condition = close < supertrend and call_oi > put_oi
+short_condition = close > supertrend and call_oi < put_oi
+
+far_otm_call_strike = close + 200
+far_otm_put_strike = close - 200
+
+if (close < buy_price_limit)
+    strategy.entry("Buy Call", strategy.long, qty=quantity, limit=close)
+    strategy.entry("Buy Put", strategy.long, qty=quantity, limit=close)
+
+if (long_condition)
+    strategy.entry("Sell Put", strategy.short, qty=quantity, limit=far_otm_put_strike)
+
+if (short_condition)
+    strategy.entry("Sell Call", strategy.short, qty=quantity, limit=far_otm_call_strike)
+
+sl_percentage = input.float(0.02, title="Stop Loss Percentage")
+stop_loss_price = strategy.position_avg_price * (1 - sl_percentage)
+
+if (strategy.position_size > 0)
+    strategy.exit("Sell Call SL", from_entry="Sell Call", limit=stop_loss_price)
+
+if (strategy.position_size < 0)
+    strategy.exit("Sell Put SL", from_entry="Sell Put", limit=stop_loss_price)
